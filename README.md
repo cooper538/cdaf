@@ -51,6 +51,7 @@ at scale, this pattern cut video-workflow AI costs to roughly **1/25th**.
 | **[Engine](#-engine-core-library)** | [cli/cdaf/](cli/cdaf/) | Python library: parse, validate, hash, generate |
 | **[CLI](#-cli)** | [cli/](cli/) | `cdaf` command: generate / validate / read / status |
 | **Local provider** | [cli/cdaf/local.py](cli/cdaf/local.py) | `--local`: generate with a local model, no API key |
+| **Claude Code provider** | [cli/cdaf/prepare.py](cli/cdaf/prepare.py) · [claude.py](cli/cdaf/claude.py) · [assemble.py](cli/cdaf/assemble.py) | `prepare` / `assemble` / `--claude`: generate with Claude Code on a subscription, no API key |
 | **[Agent Skill](#-agent-skill)** | [skills/](skills/claude-code/cdaf/SKILL.md) | Teaches agents the sidecar-first protocol · `npx cdaf-skill` |
 | **[Benchmarks](#-benchmarks)** | [benchmarks/](benchmarks/) | Reproducible eval: sidecar vs direct video |
 | **[Paper](#-paper)** | [paper/PREPRINT.md](paper/PREPRINT.md) | arXiv preprint draft built on the benchmark |
@@ -130,6 +131,7 @@ pip install "cdaf[generate] @ git+https://github.com/UditAkhourii/cdaf.git#subdi
 export GEMINI_API_KEY=your-key          # PowerShell: $env:GEMINI_API_KEY="your-key"
 
 cdaf generate ./footage                 # describe every video, skip fresh sidecars
+cdaf generate ./footage --claude        # same, via Claude Code on a subscription (no key)
 cdaf status ./footage                   # FRESH / STALE / MISSING report
 cdaf read ./footage/sunset-drone.mp4    # print the description (verifies hash first)
 cdaf validate ./footage/clip.mp4        # exit 0 iff sidecar is well-formed and fresh
@@ -141,6 +143,35 @@ Working from a clone instead? `pip install ./cli[generate]`. A PyPI release
 Flags: `--detail brief|standard|rich`, `--model <gemini-model>`, `--force`.
 `validate`/`read`/`status` need **no dependencies and no API key**. Safety lives in
 the tool, not just in guidance: `cdaf read` refuses to print a stale sidecar.
+
+## 🧠 Claude Code provider (subscription, no API key)
+
+Claude Code reads images but not video. So `cdaf prepare` does the deterministic part
+with ffmpeg and hands Claude what it can read: frame-exact shots from scene detection
+(long shots split so static footage still gets sampled), two frames per shot tiled into
+**labeled contact sheets** (one image read covers six frames), measured speech spans, and
+a manifest bound to the video's SHA-256. Claude describes the sheets, and `cdaf assemble`
+checks the result against the manifest before it writes the sidecar.
+
+```
+cdaf prepare ./clip.mp4          # sheets + manifest in ./.cdaf-work/clip.mp4/
+#   ... Claude reads the sheets and writes body.md (the skill knows the steps) ...
+cdaf assemble ./clip.mp4         # validates, writes clip.cdaf, removes the work dir
+
+cdaf generate ./footage --claude # batch form: one `claude -p` call per video
+```
+
+`assemble` refuses a body whose Segments do not match the manifest's shot boundaries,
+and refuses to write at all if the video changed since `prepare`. Speech that was
+measured but not transcribed is recorded as `(untranscribed speech)` spans, never as
+`(no speech)`. Drop a `transcript.txt` (`[MM:SS.d] text` lines) into the work directory
+and `assemble` uses it. Provenance lands in `x-` header keys (`x-shot-source`,
+`x-shot-isolation: contact-sheet`, `x-transcript-source`).
+
+Cost model: one 1536 px sheet is roughly 1.2k image tokens for six frames, so a
+60-second clip with ~15 shots is about five image reads. On a Claude Pro/Max plan the
+subscription covers it. The batch form needs `claude` on PATH and a logged-in Claude
+Code. `--model` and `--effort` pass through to `claude -p`.
 
 ## 🤖 Agent Skill
 
@@ -221,7 +252,7 @@ production case study, integration analysis for agentic editors, limitations.
 - PyPI release of the `cdaf` CLI (`pip install cdaf`)
 - MCP server exposing `cdaf_read` / `cdaf_status` / `cdaf_generate` to any MCP client
 - Hosted free converter (no local install; bring-your-own-key or free quota)
-- Additional generator backends (Claude, GPT, local VLMs)
+- Additional generator backends (GPT, more local VLMs). Claude Code and a local OpenAI-compatible endpoint are done
 - Node/TypeScript port of the engine
 - Natural-footage benchmark extension with human-verified QA
 - Signed sidecars (`signature` header) for cross-organization trust

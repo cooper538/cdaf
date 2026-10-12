@@ -1,7 +1,8 @@
 """Generate a CDAF sidecar body from a video.
 
-Two providers: Gemini (BYOK, default) and a local OpenAI-compatible endpoint
-(see local.py). Select with the `provider` argument or CDAF_PROVIDER.
+Three providers: Gemini (BYOK, default), a local OpenAI-compatible endpoint
+(see local.py), and Claude Code on a subscription (see claude.py). Select with the
+`provider` argument or CDAF_PROVIDER.
 
 Requires the `google-genai` package (`pip install cdaf[generate]`) and a
 GEMINI_API_KEY (or GOOGLE_API_KEY) environment variable, or an explicit key.
@@ -20,7 +21,7 @@ from .sidecar import SPEC_VERSION, Sidecar, hash_file
 
 DEFAULT_MODEL = os.environ.get("CDAF_MODEL", "gemini-2.5-flash")
 DEFAULT_PROVIDER = os.environ.get("CDAF_PROVIDER", "gemini")
-PROVIDERS = ("gemini", "local")
+PROVIDERS = ("gemini", "local", "claude")
 
 _DETAIL_GUIDANCE = {
     "brief": (
@@ -153,6 +154,7 @@ def generate_sidecar(
     provider: str = DEFAULT_PROVIDER,
     base_url: str | None = None,
     scene_threshold: float | None = None,
+    effort: str | None = None,
     usage_out: dict | None = None,
 ) -> Sidecar:
     """Full pipeline: hash + probe + describe → a ready-to-save Sidecar.
@@ -160,6 +162,8 @@ def generate_sidecar(
     provider="gemini" uploads the video to the Gemini Files API (needs a key).
     provider="local" samples frames and posts them to an OpenAI-compatible
     endpoint (no key, no cost, footage stays on the machine).
+    provider="claude" tiles frames into contact sheets and has Claude Code read
+    them in print mode (no key; billed to the user's subscription).
     """
     if provider not in PROVIDERS:
         raise ValueError(f"provider must be one of {list(PROVIDERS)}")
@@ -174,6 +178,17 @@ def generate_sidecar(
         "detail": detail,
         "lang": "en",
     }
+
+    if provider == "claude":
+        from .assemble import header_for
+        from .claude import describe_video_claude
+
+        body, manifest, source = describe_video_claude(
+            video, detail=detail, model=model, effort=effort,
+            scene_threshold=scene_threshold, usage_out=usage_out)
+        generator = f"claude-code/{model}" if model else "claude-code"
+        header = header_for(video, manifest, generator=generator, transcript_source=source)
+        return Sidecar(version=SPEC_VERSION, header=header, body=body)
 
     if provider == "local":
         from . import local  # lazy: keeps ffmpeg/endpoint concerns out of the Gemini path

@@ -150,8 +150,8 @@ def test_header_extras_use_only_reserved_x_keys():
 
 # ---------------------------------------------------------------- provider
 
-def test_providers_are_gemini_and_local():
-    assert PROVIDERS == ("gemini", "local")
+def test_providers_are_gemini_local_and_claude():
+    assert PROVIDERS == ("gemini", "local", "claude")
 
 
 def test_unknown_provider_is_rejected(tmp_path):

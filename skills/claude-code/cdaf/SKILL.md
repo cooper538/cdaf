@@ -1,6 +1,6 @@
 ---
 name: cdaf
-description: Read CDAF sidecar files (.cdaf) instead of processing video with vision. Use whenever a task involves understanding, summarizing, searching, editing, or selecting from video files (b-roll, raw clips, footage libraries) — check for a .cdaf sidecar FIRST before analyzing any video directly.
+description: Read CDAF sidecar files (.cdaf) instead of processing video with vision. Use whenever a task involves understanding, summarizing, searching, editing, or selecting from video files (b-roll, raw clips, footage libraries) — check for a .cdaf sidecar FIRST before analyzing any video directly. When no sidecar exists, generate one yourself from contact sheets (`cdaf prepare` / `cdaf assemble`), no API key needed.
 ---
 
 # CDAF — Cached Descriptive Asset Files
@@ -88,6 +88,9 @@ which parts were measured rather than inferred:
 |---|---|
 | `x-shot-source: ffmpeg-scene-detect@<threshold>` | Boundaries came from the container and are frame-exact — no need for the ffmpeg check above. |
 | `x-shot-isolation: per-shot` | Each segment was described without sight of the others, which suppresses invented continuity between shots. |
+| `x-shot-isolation: contact-sheet` | Segments were described from labeled frame grids, a few shots per image. Boundaries are measured, continuity between shots is inferred. |
+| `x-shot-maxlen: <seconds>` | Shots longer than this were split into equal parts, so a boundary inside a long static shot is a sampling point, not a cut. |
+| `x-transcript-source: transcript.txt` / `untranscribed` / `none` | The transcript came from an external transcriber, speech was measured but not transcribed, or no speech was measured. |
 | `x-transcript-timing: measured-rms` | Transcript times were measured from audio. `none` means no measurable speech. |
 
 Absent these keys, assume the weaker case: inferred boundaries, whole-video context,
@@ -98,7 +101,54 @@ Verify the specific claim your decision rests on, not the whole clip.
 
 ## Generating sidecars
 
-Two providers. Both write the same v1.0 format and either output passes `cdaf validate`.
+Three providers. All write the same v1.0 format and every output passes `cdaf validate`.
+
+### Claude Code — no API key, you describe the frames yourself
+
+You cannot open a video, but you can read images. `cdaf prepare` turns the video into
+labeled contact sheets (a grid of frames, one image per six frames) plus a manifest, and
+`cdaf assemble` turns your description into the sidecar. Needs `ffmpeg` on PATH and the
+`cdaf` CLI (install below). Nothing leaves the machine except what you read.
+
+1. Run `cdaf prepare <video>`. It prints the sheets, the tile-to-shot map, the shot list,
+   and the path of the work directory (`.cdaf-work/<video name>/` next to the video).
+2. Read every sheet with the Read tool. Tiles run left-to-right, top-to-bottom. Each tile
+   carries its shot number and time in the top-left corner.
+3. Write `<work>/body.md` with these sections: `## Summary`, `## Segments`,
+   `## On-screen Text`, `## Tags`. One Segments line per shot, in order, with the exact
+   timestamps from the shot list: `[00:04.0-00:08.0] Description.` Use the rules below.
+4. If prepare reports measured speech and you have a transcription tool, transcribe
+   `<work>/audio.wav` and write `<work>/transcript.txt` as `[MM:SS.d] text` lines. If you
+   cannot transcribe, skip this step. The spans are then recorded as untranscribed, which
+   is honest. Never write `(no speech)` when speech was measured.
+5. Run `cdaf assemble <video>`. It checks that every shot has its line with the right
+   timestamps, confirms the video has not changed since prepare, writes the sidecar, and
+   deletes the work directory. If it reports a problem, fix `body.md` and run it again.
+
+Description rules (they protect every agent that reads the sidecar instead of watching):
+
+- Describe only what is visible in the frames. Do not narrate what probably happened
+  between frames or after the last one.
+- Do not say a task was completed, fixed, or finished unless the finished result is
+  plainly visible. Someone holding a tool or a detached part is intent, not completion.
+- Name what you can identify. Fall back on shape and color only when you cannot tell.
+- Transcribe visible text exactly as written. Report deliberate, legible text only.
+  Ignore incidental text on background packaging, and never guess a brand from a partly
+  visible logo.
+- Write in English. Keep each description self-contained, then keep continuity across
+  shots: introduce a person or place once and refer back to it afterwards.
+- Do not mention sheets, tiles, labels, or still frames.
+
+Options: `--detail brief|standard|rich` (1, 2 or 3 frames per shot, and a 20 s, 10 s or
+6 s cap on one shot so static footage is still sampled), `--scene-threshold`, `--cols`,
+`--rows`, `--tile-width`. Sheets are 1536 px wide by default, which Claude reads without
+downscaling.
+
+Batch form, from a terminal: `cdaf generate ./footage --claude`. It runs `claude -p` once
+per video with only the Read tool, on the user's subscription, and assembles the result.
+Inside a Claude Code session prefer the five steps above: the batch form starts a second
+Claude for each video. `--model` and `--effort` pass through to `claude -p`
+(or set `CDAF_CLAUDE_MODEL` / `CDAF_CLAUDE_EFFORT`).
 
 ### Local model — no API key, no cost, footage stays on the machine
 
