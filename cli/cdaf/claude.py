@@ -7,6 +7,11 @@ tool but cannot open video, so this provider hands it the contact sheets that
 
 Only Read is enabled and the session is not persisted. `--bare` is deliberately not
 used: it skips keychain reads, so the headless run would start logged out.
+
+Profile: Claude Code keeps login, settings and any API proxy per config directory
+(`CLAUDE_CONFIG_DIR`). The headless run uses the directory of the session or shell it
+was started from, so it is billed to the same account. `config_dir` /
+CDAF_CLAUDE_CONFIG_DIR overrides that explicitly.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from .prepare import DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_TILE_WIDTH, Manifest, p
 
 DEFAULT_CLAUDE_MODEL = os.environ.get("CDAF_CLAUDE_MODEL")      # None = the user's default
 DEFAULT_CLAUDE_EFFORT = os.environ.get("CDAF_CLAUDE_EFFORT")
+DEFAULT_CLAUDE_CONFIG_DIR = os.environ.get("CDAF_CLAUDE_CONFIG_DIR")
 CLAUDE_TIMEOUT = 1800
 
 _DETAIL_SENTENCES = {"brief": "one short sentence", "standard": "1-2 sentences",
@@ -120,12 +126,26 @@ def claude_command(prompt_schema: dict, work: Path, *, model: str | None,
     return cmd
 
 
+def claude_env(config_dir: str | None) -> dict[str, str]:
+    """Environment for the headless run: the caller's, with the profile pinned when asked."""
+    env = dict(os.environ)
+    if config_dir:
+        env["CLAUDE_CONFIG_DIR"] = str(Path(config_dir).expanduser())
+    return env
+
+
+def effective_config_dir(config_dir: str | None) -> str:
+    """The config directory the headless run will use, for reporting."""
+    return claude_env(config_dir).get("CLAUDE_CONFIG_DIR") or str(Path.home() / ".claude")
+
+
 def run_claude(prompt: str, work: Path, *, model: str | None, effort: str | None,
-               usage_out: dict | None = None) -> dict:
+               config_dir: str | None = None, usage_out: dict | None = None) -> dict:
     cmd = claude_command(OUTPUT_SCHEMA, work, model=model, effort=effort)
     try:
         proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
-                              encoding="utf-8", timeout=CLAUDE_TIMEOUT, cwd=str(work))
+                              encoding="utf-8", timeout=CLAUDE_TIMEOUT, cwd=str(work),
+                              env=claude_env(config_dir))
     except (subprocess.SubprocessError, OSError) as e:
         raise GenerationError(f"could not run claude: {e}") from e
     try:
@@ -137,6 +157,7 @@ def run_claude(prompt: str, work: Path, *, model: str | None, effort: str | None
         raise GenerationError(f"claude reported an error: {str(result.get('result'))[:400]}")
     if usage_out is not None:
         usage_out.update({
+            "claude_config_dir": effective_config_dir(config_dir),
             "claude_cost_usd": result.get("total_cost_usd"),
             "claude_turns": result.get("num_turns"),
             "seconds": round(result.get("duration_ms", 0) / 1000, 2),
@@ -177,6 +198,7 @@ def describe_video_claude(
     detail: str = "standard",
     model: str | None = DEFAULT_CLAUDE_MODEL,
     effort: str | None = DEFAULT_CLAUDE_EFFORT,
+    config_dir: str | None = DEFAULT_CLAUDE_CONFIG_DIR,
     scene_threshold: float | None = None,
     tile_width: int = DEFAULT_TILE_WIDTH,
     cols: int = DEFAULT_COLS,
@@ -190,7 +212,7 @@ def describe_video_claude(
                              tile_width=tile_width, cols=cols, rows=rows)
     try:
         out = run_claude(build_prompt(work, manifest), work, model=model, effort=effort,
-                         usage_out=usage_out)
+                         config_dir=config_dir, usage_out=usage_out)
         body, source = body_from_output(manifest, out, work)
     finally:
         if not keep:

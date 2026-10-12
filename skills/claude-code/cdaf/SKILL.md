@@ -148,7 +148,10 @@ Batch form, from a terminal: `cdaf generate ./footage --claude`. It runs `claude
 per video with only the Read tool, on the user's subscription, and assembles the result.
 Inside a Claude Code session prefer the five steps above: the batch form starts a second
 Claude for each video. `--model` and `--effort` pass through to `claude -p`
-(or set `CDAF_CLAUDE_MODEL` / `CDAF_CLAUDE_EFFORT`).
+(or set `CDAF_CLAUDE_MODEL` / `CDAF_CLAUDE_EFFORT`). The run inherits
+`CLAUDE_CONFIG_DIR`, so it uses the login, settings and proxy of the profile that
+started it, and reports that directory as `claude profile`. Pin another profile with
+`--config-dir <dir>` or `CDAF_CLAUDE_CONFIG_DIR`.
 
 ### Local model — no API key, no cost, footage stays on the machine
 

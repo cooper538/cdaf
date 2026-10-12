@@ -56,6 +56,39 @@ def test_command_requires_claude_on_path(tmp_path, monkeypatch):
         cc.claude_command(cc.OUTPUT_SCHEMA, tmp_path, model=None, effort=None)
 
 
+# ---------------------------------------------------------------- profile
+
+def test_env_inherits_callers_profile(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/home/me/.claude-personal")
+    assert cc.claude_env(None)["CLAUDE_CONFIG_DIR"] == "/home/me/.claude-personal"
+    assert cc.effective_config_dir(None) == "/home/me/.claude-personal"
+
+
+def test_env_pins_profile_when_asked(monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/home/me/.claude-personal")
+    env = cc.claude_env("/home/me/.claude-codex")
+    assert env["CLAUDE_CONFIG_DIR"].endswith(".claude-codex")
+    assert cc.effective_config_dir("/home/me/.claude-codex").endswith(".claude-codex")
+
+
+def test_effective_profile_defaults_to_home_claude(monkeypatch):
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert cc.effective_config_dir(None).endswith(".claude")
+
+
+def test_run_claude_passes_profile_env(tmp_path, monkeypatch):
+    monkeypatch.setattr(cc.shutil, "which", lambda name: "/usr/bin/claude")
+    seen = {}
+
+    def fake_run(*a, **k):
+        seen.update(k)
+        return _completed(json.dumps({"is_error": False, "structured_output": {"summary": "s"}}))
+
+    monkeypatch.setattr(cc.subprocess, "run", fake_run)
+    cc.run_claude("p", tmp_path, model=None, effort=None, config_dir="/x/.claude-codex")
+    assert seen["env"]["CLAUDE_CONFIG_DIR"].endswith(".claude-codex")
+
+
 # -------------------------------------------------------------- run_claude
 
 def _completed(stdout: str, returncode: int = 0, stderr: str = ""):
@@ -71,7 +104,8 @@ def test_run_claude_prefers_structured_output(tmp_path, monkeypatch):
     usage = {}
     out = cc.run_claude("prompt", tmp_path, model=None, effort=None, usage_out=usage)
     assert out["summary"] == "s"
-    assert usage == {"claude_cost_usd": 0.1, "claude_turns": 3, "seconds": 1.5}
+    assert usage["claude_cost_usd"] == 0.1 and usage["claude_turns"] == 3
+    assert usage["seconds"] == 1.5 and usage["claude_config_dir"]
 
 
 def test_run_claude_falls_back_to_json_in_result_text(tmp_path, monkeypatch):

@@ -69,6 +69,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print("no video files found", file=sys.stderr)
         return 1
 
+    if args.provider == "claude":
+        from .claude import effective_config_dir
+        print(f"  claude profile  {effective_config_dir(args.config_dir)}")
+
     failures = 0
     for video in videos:
         sidecar = sidecar_path_for(video)
@@ -80,7 +84,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
             sc = generate_sidecar(
                 video, model=args.model, detail=args.detail, api_key=args.api_key,
                 provider=args.provider, base_url=args.base_url,
-                scene_threshold=args.scene_threshold, effort=args.effort
+                scene_threshold=args.scene_threshold, effort=args.effort,
+                config_dir=args.config_dir
             )
             save(sc, sidecar)
             print(f"  wrote   {sidecar}")
@@ -230,6 +235,10 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"],
                    default=None, help="claude: effort level passed to claude -p "
                                       "(default: env CDAF_CLAUDE_EFFORT)")
+    g.add_argument("--config-dir", default=None, metavar="DIR",
+                   help="claude: Claude Code profile to run under, sets CLAUDE_CONFIG_DIR "
+                        "(default: env CDAF_CLAUDE_CONFIG_DIR, else the caller's "
+                        "CLAUDE_CONFIG_DIR, else ~/.claude)")
     g.add_argument("--scene-threshold", type=float, default=None, metavar="F",
                    help="local: ffmpeg scene-detect sensitivity, 0-1 (default 0.15). "
                         "Lower finds more cuts, including low-contrast ones, at the "
@@ -287,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 from .generate import DEFAULT_MODEL
                 args.model = DEFAULT_MODEL
+        if getattr(args, "config_dir", None) is None:
+            from .claude import DEFAULT_CLAUDE_CONFIG_DIR
+            args.config_dir = DEFAULT_CLAUDE_CONFIG_DIR
     if args.command == "prepare":
         from .local import DEFAULT_SCENE_THRESHOLD
         from .prepare import DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_TILE_WIDTH

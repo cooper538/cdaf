@@ -171,7 +171,9 @@ and `assemble` uses it. Provenance lands in `x-` header keys (`x-shot-source`,
 Cost model: one 1536 px sheet is roughly 1.2k image tokens for six frames, so a
 60-second clip with ~15 shots is about five image reads. On a Claude Pro/Max plan the
 subscription covers it. The batch form needs `claude` on PATH and a logged-in Claude
-Code. `--model` and `--effort` pass through to `claude -p`.
+Code. It runs under the profile in `CLAUDE_CONFIG_DIR` (inherited from the session or
+shell that started it) and prints which one. `--model`, `--effort` and `--config-dir`
+pass through to `claude -p`.
 
 ## 🤖 Agent Skill
 

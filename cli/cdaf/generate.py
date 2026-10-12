@@ -155,6 +155,7 @@ def generate_sidecar(
     base_url: str | None = None,
     scene_threshold: float | None = None,
     effort: str | None = None,
+    config_dir: str | None = None,
     usage_out: dict | None = None,
 ) -> Sidecar:
     """Full pipeline: hash + probe + describe → a ready-to-save Sidecar.
@@ -163,7 +164,8 @@ def generate_sidecar(
     provider="local" samples frames and posts them to an OpenAI-compatible
     endpoint (no key, no cost, footage stays on the machine).
     provider="claude" tiles frames into contact sheets and has Claude Code read
-    them in print mode (no key; billed to the user's subscription).
+    them in print mode (no key; billed to the subscription of the Claude Code
+    profile in CLAUDE_CONFIG_DIR, or of config_dir when given).
     """
     if provider not in PROVIDERS:
         raise ValueError(f"provider must be one of {list(PROVIDERS)}")
@@ -184,7 +186,7 @@ def generate_sidecar(
         from .claude import describe_video_claude
 
         body, manifest, source = describe_video_claude(
-            video, detail=detail, model=model, effort=effort,
+            video, detail=detail, model=model, effort=effort, config_dir=config_dir,
             scene_threshold=scene_threshold, usage_out=usage_out)
         generator = f"claude-code/{model}" if model else "claude-code"
         header = header_for(video, manifest, generator=generator, transcript_source=source)
